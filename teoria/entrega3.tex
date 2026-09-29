@@ -1,0 +1,105 @@
+% ===============================================================
+% Entrega 3: Pseudocodigo dos shaders (GLSL)
+% Incluido no main.tex com \input{entrega3}
+% Os arquivos .vert e .frag ficam na pasta shaders/
+% ===============================================================
+
+% configuracao do pacote listings para mostrar os shaders
+\lstset{
+    language=C,
+    morekeywords={vec2,vec3,vec4,mat3,mat4,sampler2D,uniform,layout,in,out,location,set,binding,push_constant},
+    basicstyle=\linespread{1.0}\footnotesize\ttfamily,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray}\itshape,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    frame=single,
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false,
+    columns=fullflexible,
+    keepspaces=true,
+}
+\renewcommand{\lstlistingname}{Código}
+
+\section{Pseudocódigo dos Shaders}
+\label{sec:pseudocodigo}
+\sloppy
+
+Nesta entrega escrevemos o pseudocódigo dos sete \textit{shaders} do pipeline da Entrega 2 (Seção~\ref{sec:arquitetura}). Os arquivos estão na pasta \texttt{shaders/} do \texttt{.zip}: dois \texttt{.vert} e cinco \texttt{.frag}. Não usamos \textit{compute shader}, então não há \texttt{.comp}. A sintaxe é a do GLSL do Vulkan (\texttt{\#version 450}), mas o código ainda não foi ligado a uma aplicação. Nos comentários, ``eq.~1'' a ``eq.~5'' são as equações da Seção~\ref{sec:equacoes}.
+
+\subsection{Objetivo de Cada Shader}
+
+\begin{table}[htb]
+    \centering
+    \caption{Os \textit{shaders} da entrega.}
+    \label{tab:shaders}
+    \vspace{4pt}
+    \small
+    \begin{tabular}{l l c p{7.2cm}}
+        \toprule
+        \textbf{Arquivo} & \textbf{Tipo} & \textbf{Passe} & \textbf{O que faz} \\
+        \midrule
+        \texttt{scene.vert} & \textit{vertex} & 0 & transforma os vértices da cena para a tela \\
+        \texttt{scene.frag} & \textit{fragment} & 0 & calcula a cor da cena em HDR (sem limitar em 1.0) \\
+        \texttt{fullscreen.vert} & \textit{vertex} & 1 a 10 & gera o triângulo de tela cheia dos passes de pós-processamento \\
+        \texttt{bright.frag} & \textit{fragment} & 1 & deixa passar só as partes claras da cena (\textit{bright pass}) \\
+        \texttt{downsample.frag} & \textit{fragment} & 2 a 5 & reduz a imagem pela metade e borra \\
+        \texttt{upsample.frag} & \textit{fragment} & 6 a 9 & amplia o nível menor e soma no maior \\
+        \texttt{composite.frag} & \textit{fragment} & 10 & soma cena e \textit{bloom} e faz o \textit{tone mapping} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Fluxo entre os Shaders}
+O fluxo é o da Figura~\ref{fig:pipeline}: o \textit{fragment shader} de um passe escreve em uma imagem e o do passe seguinte lê essa imagem como textura, depois da barreira correspondente (Seção~\ref{sec:barreiras}).
+\begin{center}
+    \texttt{scene.vert} $\to$ \texttt{scene.frag} $\to$ \texttt{sceneHDR} $\to$ \texttt{bright.frag} $\to$ \texttt{bloomMip[0]} $\to$ \texttt{downsample.frag} (4 vezes) $\to$ \texttt{bloomMip[4]} $\to$ \texttt{upsample.frag} (4 vezes) $\to$ \texttt{bloomMip[0]} $\to$ \texttt{composite.frag} $\to$ \textit{swapchain}
+\end{center}
+Nos passes 1 a 10 o \textit{vertex shader} é sempre o \texttt{fullscreen.vert}. O \texttt{downsample.frag} e o \texttt{upsample.frag} rodam quatro vezes cada um, trocando a textura lida e os \textit{push constants}.
+
+\subsection{Pseudocódigo Completo}
+
+\lstinputlisting[caption={\texttt{scene.vert}}, label={lst:scenevert}]{shaders/scene.vert}
+\lstinputlisting[caption={\texttt{scene.frag}}, label={lst:scenefrag}]{shaders/scene.frag}
+\lstinputlisting[caption={\texttt{fullscreen.vert}}, label={lst:fullscreen}]{shaders/fullscreen.vert}
+\lstinputlisting[caption={\texttt{bright.frag}}, label={lst:bright}]{shaders/bright.frag}
+\lstinputlisting[caption={\texttt{downsample.frag}}, label={lst:downsample}]{shaders/downsample.frag}
+\lstinputlisting[caption={\texttt{upsample.frag}}, label={lst:upsample}]{shaders/upsample.frag}
+\lstinputlisting[caption={\texttt{composite.frag}}, label={lst:composite}]{shaders/composite.frag}
+
+\subsection{Entradas e Saídas}
+\begin{itemize}
+    \setlength{\itemsep}{0pt}
+    \item \texttt{scene.vert}: entram posição, normal e uv do \textit{vertex buffer} e as matrizes do UBO da câmera; saem \texttt{gl\_Position}, normal e uv.
+    \item \texttt{scene.frag}: entram normal, uv e a textura do material; sai a cor HDR na \texttt{sceneHDR}.
+    \item \texttt{fullscreen.vert}: entra só o \texttt{gl\_VertexIndex}; saem \texttt{gl\_Position} e o \texttt{uv}.
+    \item \texttt{bright.frag}: entram \texttt{uv}, \texttt{sceneHDR} e o UBO \texttt{BloomParams}; sai a \texttt{bloomMip[0]}.
+    \item \texttt{downsample.frag} e \texttt{upsample.frag}: entram \texttt{uv}, o nível lido e os \textit{push constants} (\texttt{texelSize} e \texttt{mipLevel}); sai o nível escrito (no \textit{upsample}, somado pelo \textit{blend}).
+    \item \texttt{composite.frag}: entram \texttt{uv}, \texttt{sceneHDR}, \texttt{bloomMip[0]} e o \texttt{intensity}; sai a imagem final no \textit{swapchain}.
+\end{itemize}
+Os tipos (\texttt{vec2}, \texttt{vec3}, \texttt{mat4}, \texttt{sampler2D}) e os \textit{bindings} estão nas declarações de cada arquivo.
+
+\subsection{Equações e Variáveis}
+\begin{itemize}
+    \setlength{\itemsep}{0pt}
+    \item \texttt{scene.vert}: posição $= \mathbf{P}\,\mathbf{V}\,\mathbf{M}\,p$; a normal usa só a parte $3 \times 3$ da \texttt{model} e é normalizada de novo.
+    \item \texttt{scene.frag}: difusa de Lambert, $\max(\mathbf{n} \cdot \mathbf{l}, 0)$, com luz de intensidade $4.0$ e emissivo $10.0$. Por isso a cena passa de $1.0$.
+    \item \texttt{bright.frag}: \texttt{lum} é a Equação~\ref{eq:luminancia} e \texttt{peso} é a Equação~\ref{eq:softknee}, com \texttt{T} = \texttt{threshold}, \texttt{k} = \texttt{knee} e \texttt{EPS} = $\epsilon$. O peso vale $0$ até $L = T - k$ e fica em $k$ a partir de $L = T + k$.
+    \item \texttt{downsample.frag}: 13 amostras com pesos $1/8$ (centro e internas), $1/16$ (bordas) e $1/32$ (cantos), que somam $1$.
+    \item \texttt{upsample.frag}: filtro tenda $\frac{1}{16}\begin{bmatrix} 1 & 2 & 1 \\ 2 & 4 & 2 \\ 1 & 2 & 1 \end{bmatrix}$, que também soma $1$. Os dois filtros fazem o papel da Gaussiana da Equação~\ref{eq:gauss}: o borrão fica largo porque a imagem cai pela metade a cada nível.
+    \item \texttt{composite.frag}: Equação~\ref{eq:reinhard}, \texttt{total} $= C_{\text{cena}} + \alpha\,C_{\text{bloom}}$ e \texttt{cor} $= \texttt{total}/(1 + \texttt{total})$. Uma luz de $10.0$ vira $0.91$ e uma parede branca de $1.0$ vira $0.5$.
+\end{itemize}
+
+\subsection{Loops e Condições}
+O \texttt{bright.frag} tem um \texttt{for} de 4 iterações (uma por pixel do bloco $2 \times 2$) e o \texttt{upsample.frag} tem dois \texttt{for} aninhados de $-1$ a $1$ (9 amostras). No \texttt{downsample.frag} as 13 amostras estão escritas uma a uma, e o \texttt{if (pc.mipLevel == 1)} corta valores acima de $10.0$ só no primeiro nível, para pixels isolados não piscarem. Casos extremos: o \texttt{max} zera luz negativa (\texttt{scene.frag} e \texttt{bright.frag}), o \texttt{EPS} evita divisão por zero, o \texttt{clamp} do \texttt{composite.frag} garante o intervalo do \textit{swapchain} e o \texttt{CLAMP\_TO\_EDGE} do \textit{sampler} repete o pixel da borda em vez de ler fora da imagem.
+
+\subsection{Amostragem de Texturas}
+Todas as leituras usam \texttt{sampler2D} e \texttt{texture()}. A textura do material tem mipmaps e \textit{sampler} trilinear com \texttt{REPEAT}; o nível é escolhido pelo hardware. As imagens do \textit{bloom} têm um nível só (o \texttt{texture()} lê o nível 0), filtro \texttt{LINEAR} e \texttt{CLAMP\_TO\_EDGE}. O filtro linear faz a média dos vizinhos quando a amostra cai entre dois pixels (\texttt{bright} e \texttt{downsample}) e amplia a imagem menor sem serrilhado (\texttt{upsample} e \texttt{composite}). Os deslocamentos são múltiplos do \texttt{texelSize} da imagem lida.
+
+\subsection{Resultado Esperado}
+A \texttt{bloomMip[0]} sai do \textit{bright pass} quase toda preta, só com as luzes. Cada \textit{downsample} gera um nível menor e mais borrado, até $60 \times 33$, e cada \textit{upsample} soma o nível menor no maior; no fim a \texttt{bloomMip[0]} tem um halo largo e suave em volta de cada luz. O \texttt{composite.frag} soma esse halo na cena e comprime para $[0, 1]$: é a imagem final, com as luzes ``sangrando'' como nas Figuras~\ref{fig:portal} e~\ref{fig:cyberpunk}.
+
+\subsection{Relação com a Técnica}
+Os \textit{shaders} são as quatro fases da Seção~\ref{sec:funciona}: \textit{bright pass} (Equações~\ref{eq:luminancia} e~\ref{eq:softknee}), \textit{downsampling}, \textit{upsampling} com soma e \textit{tone mapping} (Equação~\ref{eq:reinhard}). A pirâmide substitui a Gaussiana grande da Equação~\ref{eq:gauss}, e a soma de borrões de vários tamanhos aproxima o espalhamento da Equação~\ref{eq:psf} \cite{spencer1995glare}. Cada arquivo corresponde a um passe e a um \textit{descriptor set} da Seção~\ref{sec:arquitetura}.
+\fussy

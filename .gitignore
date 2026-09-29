@@ -1,0 +1,38 @@
+# Build directories
+build/
+codigo/build/
+bin/
+*.o
+*.obj
+
+# Executables
+BloomVulkan
+codigo/BloomVulkan
+
+# Temporary rendering outputs
+*.ppm
+captura_quadro.ppm
+codigo/captura_quadro.ppm
+
+# SPIR-V generated binaries (compiled automatically by build)
+# Uncomment if you prefer not to track compiled .spv
+# *.spv
+
+# LaTeX temporary files
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# IDE and OS
+.vscode/
+.idea/
+.cache/
+.DS_Store
+*.swp
+*~

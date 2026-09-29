@@ -1,0 +1,283 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{cite}
+
+\geometry{
+    a4paper,
+    left=3cm,
+    right=2cm,
+    top=3cm,
+    bottom=2cm
+}
+
+\linespread{1.25}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=blue,
+    urlcolor=blue
+}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    \vspace*{1cm}
+    {\Large \textbf{UNIVERSIDADE CATÓLICA DE SANTOS}}\\[0.3cm]
+    {\large CIÊNCIA DA COMPUTAÇÃO}\\[0.3cm]
+    {\large COMPUTAÇÃO GRÁFICA E PROCESSAMENTO DE IMAGENS}\\[3.5cm]
+    
+    {\Huge \textbf{Revisão Bibliográfica:}}\\[0.4cm]
+    {\LARGE \textbf{Bloom e Efeitos de Pós-Processamento em Tempo Real}}\\[3cm]
+    
+    \begin{flushleft}
+        \textbf{Integrantes do Grupo:}\\
+        Arthur Iwankiu Castro (RA: 2822116)\\
+        Enzo da Silva Passos (RA: 7047045)\\
+        Francklin Roberto dos Santos Junior (RA: 9125435)\\
+        Kayque de Jesus Levy Rodrigues (RA: 6593272)\\
+        Miguel Nepomuceno Gil (RA: 5196718)\\
+        Vitor Oliveira Christovam (RA: 2362780)\\
+    \end{flushleft}
+    
+    \vfill
+    {\large Santos -- SP}\\
+    {\large 2026}
+\end{titlepage}
+
+\section*{Resumo}
+Este trabalho apresenta uma pesquisa teórica e bibliográfica sobre a fundamentação física, a modelagem matemática e a implementação prática do efeito de \textit{Bloom} e dos pipelines de pós-processamento em computação gráfica em tempo real. Discutem-se os princípios ópticos e fisiológicos da dispersão luminosa intraocular e em lentes fotográficas, a extração analítica de luminância com transição contínua (\textit{soft knee}), a decomposição de convoluções Gaussianas e piramidais, bem como a compressão por mapeamento tonal (\textit{tone mapping}). Detalha-se a arquitetura de implementação sob a API de baixo nível Vulkan, cobrindo o uso de \textit{Fullscreen Triangles}, transições de layout de imagem e barreiras de memória explícitas. Por fim, analisam-se aplicações em motores gráficos e realizam-se estudos de caso analíticos com capturas de tela obtidas durante o gameplay em \textit{Portal with RTX} e \textit{Cyberpunk 2077}. Na segunda etapa do trabalho, apresenta-se o desenho técnico da arquitetura do pipeline Vulkan da técnica, com seus \textit{render passes}, \textit{descriptor sets}, \textit{buffers}, \textit{shaders}, barreiras de memória e transições de \textit{layout} de imagem. Na terceira etapa, apresenta-se o pseudocódigo, em sintaxe GLSL, dos \textit{shaders} desse pipeline, com a explicação de suas entradas, saídas, cálculos, \textit{loops}, condições e amostragens de textura. Na quarta etapa, apresenta-se a implementação do \textit{boilerplate} funcional em C++ sob a API Vulkan, cobrindo o gerenciamento modular de janelas, dispositivos lógicos, \textit{swapchain}, pipeline gráfico, sincronização e a integração prática dos \textit{shaders} compilados em SPIR-V com comprovação de renderização visual. Por fim, na quinta etapa, apresenta-se o protótipo funcional completo em tempo real, integrando a cena tridimensional HDR, extração analítica de luminância, pirâmide de reduções e ampliações com mistura aditiva, composição com mapeamento tonal de Reinhard e controles interativos de teclado com validação comparativa.
+
+\vspace{1cm}
+
+\section{Introdução}
+A renderização e exibição fidedigna de fenômenos luminosos em computação gráfica em tempo real enfrenta uma severa limitação de natureza física e tecnológica: a faixa dinâmica restrita (\textit{Low Dynamic Range} -- LDR) dos monitores de exibição convencionais \cite{seetzen2004hdr}. Enquanto tais dispositivos operam normalizados no intervalo $[0, 1]$, fontes luminosas no mundo físico (como arcos elétricos, filamentos incandescentes e o Sol) emitem radiação com ordens de magnitude substancialmente superiores às de superfícies puramente difusas circundantes \cite{seetzen2004hdr}.
+
+Para mitigar a perda de contraste perceptivo sem saturar indiscriminadamente todo o sinal cromático da cena, a computação gráfica moderna emprega filtros espaciais em espaço de tela (\textit{screen-space}) através de passes de pós-processamento \cite{cadik2005naturalness}. Dentre esses, o \textit{Bloom} desempenha um papel essencial ao simular computacionalmente os efeitos ópticos de difração e dispersão que ocorrem naturalmente no humor vítreo e no cristalino do olho humano ou nos elementos de lentes de câmeras fotográficas \cite{spencer1995glare, cadik2005naturalness}.
+
+\section{Explicação Teórica da Técnica}
+
+\subsection{Definição e Objetivo}
+O \textit{Bloom} (frequentemente tratado na literatura como \textit{glare} ou \textit{light bleeding}) consiste na simulação computacional do espalhamento difuso de fótons quando estes atravessam meios ópticos imperfeitos \cite{spencer1995glare}. Seu objetivo primordial é transmitir ao observador a percepção de intensidade extrema em fontes emissivas ou reflexões especulares, sobrepujando a incapacidade física dos displays de emitir luminância superior ao seu limiar nativo de brilho \cite{cadik2005naturalness}.
+
+\subsection{Como a Técnica Funciona}
+\label{sec:funciona}
+O pipeline clássico de pós-processamento para geração do \textit{Bloom} opera em quatro fases ordenadas:
+\begin{enumerate}
+    \item \textbf{Bright Pass (Isolamento de Altas Luzes):} Realiza uma varredura sobre o \textit{framebuffer} HDR da cena, isolando e filtrando os fragmentos cuja intensidade de luminância ultrapassa um determinado limiar de corte (\textit{threshold}).
+    \item \textbf{Downsampling e Filtragem Espacial:} Redução piramidal progressiva da resolução da textura isolada combinada à aplicação encadeada de filtros de desfoque espacial (como convoluções Gaussianas ou pirâmides de filtragem), gerando múltiplos níveis de dispersão com raios variados \cite{cadik2005naturalness}.
+    \item \textbf{Upsampling e Composição Aditiva:} Interpolação bilinear progressiva das camadas desfocadas da menor para a maior resolução, acumulando aditivamente as contribuições espalhadas sobre a imagem original da cena.
+    \item \textbf{Tone Mapping (Mapeamento Tonal):} Compressão matemática da imagem HDR combinada para o intervalo $[0, 1]$ aceito pelos dispositivos LDR, preservando detalhes tanto em penumbra quanto em altas claridades \cite{reinhard2002tone}.
+\end{enumerate}
+
+\subsection{Problema Resolvido, Vantagens e Limitações}
+A técnica soluciona a perda de contraste perceptivo em que superfícies brancas puras $(1.0, 1.0, 1.0)$ e fontes ativamente incandescentes seriam representadas com idêntico valor após a rasterização direta.
+
+\textbf{Vantagens:} Apresenta custo computacional reduzido e previsível, operando estritamente em espaço de tela 2D após a resolução da geometria tridimensional.
+
+\textbf{Limitações:} A calibração inadequada de limiar ou do raio de espalhamento pode introduzir embaçamento generalizado (\textit{haze}), saturação excessiva e perda de nitidez estrutural dos modelos 3D.
+
+\subsection{Custo Computacional e Aplicação Adequada}
+\label{sec:custo}
+O processamento independe da complexidade geométrica, contagem de polígonos ou complexidade de materiais da cena, apresentando custo temporal puramente linear $\mathcal{O}(P)$, onde $P$ é o total de pixels processados. É indispensável para cenas noturnas com iluminação artificial, cenas externas sob luz solar direta e jogos com superfícies altamente reflexivas.
+
+\section{Equações Matemáticas Envolvidas}
+\label{sec:equacoes}
+
+\subsection{Luminância Perceptual (Espaço ITU-R BT.709)}
+A filtragem de fragmentos candentes fundamenta-se na sensibilidade espectral da visão humana, que prioriza a faixa espectral do verde:
+\begin{equation}
+    L = 0.2126\,R + 0.7152\,G + 0.0722\,B
+    \label{eq:luminancia}
+\end{equation}
+\textbf{Significado das variáveis:}
+\begin{itemize}
+    \item $R, G, B$: Canais lineares de cor com precisão de ponto flutuante (\textit{floating-point}).
+    \item $L$: Luminância escalar perceptual calculada para o fragmento.
+\end{itemize}
+\textbf{Momento de uso e relação com a renderização:} Utilizada na etapa preliminar de \textit{Bright Pass} para avaliar quais fragmentos possuem energia suficiente para gerar halos de dispersão.
+
+\subsection{Extração com Joelho Suave (\textit{Bright-Pass Soft Knee})}
+Para evitar descontinuidades e ruídos de cintilação temporal (\textit{fireflies}) ao longo de bordas móveis, emprega-se uma função de transição contínua com joelho suave:
+\begin{equation}
+    C_{\text{bright}} = C_{\text{cena}} \cdot \frac{\max\left(0, \min(L - T + k, 2k)\right)^2}{4k + \epsilon}
+    \label{eq:softknee}
+\end{equation}
+\textbf{Significado das variáveis:}
+\begin{itemize}
+    \item $C_{\text{cena}}$: Vetor tridimensional de cor HDR original do pixel.
+    \item $T$: Limiar de corte (\textit{threshold}) estipulado artisticamente.
+    \item $k$: Fator escalar de abertura da transição suave (\textit{knee}).
+    \item $\epsilon$: Constante infinitesimal para evitar divisões por zero.
+    \item $C_{\text{bright}}$: Vetor de cor filtrado que alimenta as etapas subsequentes de convolução.
+\end{itemize}
+\textbf{Momento de uso e relação com a renderização:} Executada no \textit{Fragment Shader} ou \textit{Compute Shader} que gera o primeiro nível de resolução da cadeia de dispersão.
+
+\subsection{Função de Espalhamento Pontual de Spencer (\textit{Point Spread Function})}
+A base biofísica da dispersão de luz decorrente de micropartículas no olho humano foi formalizada por Spencer et al. \cite{spencer1995glare}:
+\begin{equation}
+    f(\theta) = \frac{k_1}{\theta^3 + \epsilon} + \frac{k_2}{\theta^2}
+    \label{eq:psf}
+\end{equation}
+\textbf{Significado das variáveis:}
+\begin{itemize}
+    \item $\theta$: Ângulo de desvio angular da linha direta de visada em radianos.
+    \item $k_1, k_2$: Coeficientes empíricos relacionados à difração no cristalino e à dispersão na córnea.
+    \item $\epsilon$: Termo de amortecimento que evita singularidades numéricas quando $\theta \to 0$.
+\end{itemize}
+\textbf{Momento de uso e relação com a renderização:} Constitui o embasamento físico do fenômeno; por ter cálculo integral contínuo custoso, é discretizada mediante múltiplos passos de filtragem espacial \cite{cadik2005naturalness}.
+
+\subsection{Kernel Gaussiano Separável Unidimensional}
+A discretização em tempo real da PSF efetua-se decompondo o filtro bidimensional em dois passos ortogonais (horizontal e vertical), barateando o custo por pixel de $\mathcal{O}(K^2)$ para $\mathcal{O}(2K)$:
+\begin{equation}
+    G(x) = \frac{1}{\sqrt{2\pi\sigma^2}} \exp\left(-\frac{x^2}{2\sigma^2}\right)
+    \label{eq:gauss}
+\end{equation}
+\textbf{Significado das variáveis:}
+\begin{itemize}
+    \item $x$: Deslocamento discreto em coordenadas de \textit{texels} a partir do centro da convolução.
+    \item $\sigma$: Desvio padrão da distribuição Gaussiana, definidor do raio de dispersão luminosa.
+\end{itemize}
+\textbf{Momento de uso e relação com a renderização:} Aplicada a cada nível da cadeia de amostragem regressiva (\textit{downsampling}) e progressiva (\textit{upsampling}) para expandir o halo de brilho.
+
+\subsection{Mapeamento Tonal Fotográfico de Reinhard}
+Para recombinar o brilho acumulado à imagem da cena e comprimir a faixa dinâmica sem achatamento abrupto, emprega-se a formulação de Reinhard et al. \cite{reinhard2002tone}:
+\begin{equation}
+    C_{\text{final}} = \frac{C_{\text{total}}}{1 + C_{\text{total}}}, \quad \text{onde } C_{\text{total}} = C_{\text{cena}} + \alpha C_{\text{bloom}}
+    \label{eq:reinhard}
+\end{equation}
+\textbf{Significado das variáveis:}
+\begin{itemize}
+    \item $C_{\text{cena}}$: Cor HDR original da cena renderizada.
+    \item $C_{\text{bloom}}$: Contribuição de cor acumulada pela pirâmide de dispersão.
+    \item $\alpha$: Parâmetro multiplicativo de calibração da intensidade do \textit{Bloom}.
+    \item $C_{\text{final}}$: Sinal cromático mapeado para o intervalo normalizado $[0, 1]$.
+\end{itemize}
+\textbf{Momento de uso e relação com a renderização:} Etapa final do pipeline de pós-processamento, antecedendo o envio do \textit{framebuffer} ao \textit{Swapchain}.
+
+\section{Relação da Técnica com a API Vulkan}
+\label{sec:vulkan}
+
+\subsection{Shaders e Pipelines Gráficos}
+A arquitetura do \textit{Bloom} no Vulkan implementa-se de forma enxuta sem necessidade de alocação de malhas ou \textit{Vertex Buffers}:
+\begin{itemize}
+    \item \textbf{Fullscreen Triangle:} O \textit{Vertex Shader} gera um triângulo analítico único diretamente a partir do identificador intrínseco \texttt{gl\_VertexIndex}. O polígono recobre integralmente o espaço de coordenadas de tela (NDC), suprimindo os custos de interpolação duplicada na diagonal característicos de quads tradicionais.
+    \item \textbf{Compute Shaders e Memória Compartilhada:} Nos passos de convolução, agrupam-se \textit{threads} em grupos locais (\textit{workgroups} de $16 \times 16$). Os dados dos \textit{texels} vizinhos são carregados em memória compartilhada (\textit{shared memory} / LDS), contornando leituras redundantes na VRAM e maximizando a vazão de registradores da GPU.
+\end{itemize}
+
+\subsection{Buffers, Attachments e Sincronização}
+O fluxo de dados transita sequencialmente:\\
+\texttt{Cena HDR} $\to$ \texttt{Bright Pass} $\to$ \texttt{Mip Chain (Down)} $\to$ \texttt{Upsample (Tent Filter)} $\to$ \texttt{Tone Mapping} $\to$ \texttt{Swapchain}.
+
+O \textit{framebuffer} primário requer formatos em ponto flutuante de 16 ou 32 bits, comumente:
+\begin{center}
+    \texttt{VK\_FORMAT\_R16G16B16A16\_SFLOAT}
+\end{center}
+As texturas alocadas para a pirâmide de resolução demandam o uso simultâneo de sinalizadores na estrutura \texttt{VkImageCreateInfo}:
+\begin{center}
+    \texttt{VK\_IMAGE\_USAGE\_COLOR\_ATTACHMENT\_BIT | VK\_IMAGE\_USAGE\_SAMPLED\_BIT | VK\_IMAGE\_USAGE\_STORAGE\_BIT}
+\end{center}
+\begin{sloppypar}
+\noindent A alternância segura entre etapas de escrita e leitura nos múltiplos níveis é coordenada por barreiras de sincronização explícitas (\texttt{vkCmdPipelineBarrier}), que efetuam transições de \texttt{VK\_\allowbreak IMAGE\_\allowbreak LAYOUT\_\allowbreak COLOR\_\allowbreak ATTACHMENT\_\allowbreak OPTIMAL} para \texttt{VK\_\allowbreak IMAGE\_\allowbreak LAYOUT\_\allowbreak SHADER\_\allowbreak READ\_\allowbreak ONLY\_\allowbreak OPTIMAL}, estabelecendo dependências estritas entre os estágios \texttt{VK\_\allowbreak PIPELINE\_\allowbreak STAGE\_\allowbreak COLOR\_\allowbreak ATTACHMENT\_\allowbreak OUTPUT\_\allowbreak BIT} e \texttt{VK\_\allowbreak PIPELINE\_\allowbreak STAGE\_\allowbreak FRAGMENT\_\allowbreak SHADER\_\allowbreak BIT}.
+\end{sloppypar}
+
+\section{Aplicações Práticas}
+\begin{itemize}
+    \item \textbf{NVIDIA RTX Remix:} No pipeline modular de traçado de caminhos em tempo real (\textit{Path Tracing}), o \textit{Bloom} atua subsequentemente ao desruído temporal, atenuando transições de alto contraste e dispersando a energia de emissores de radiação física sobre superfícies vizinhas em espaço de tela \cite{ignatenko2008glare}.
+    \item \textbf{Unreal Engine 5:} Integração de desfoque convolucional de abertura física com o sistema de iluminação global dinâmica Lumen, conferindo volume perceptivo e legibilidade visual a materiais emissivos em ambientes de penumbra.
+\end{itemize}
+
+\section{Análise da Técnica em Jogos}
+
+\subsection{Jogo 1: Portal with RTX}
+\begin{itemize}
+    \item \textbf{Nome do jogo e Plataforma:} \textit{Portal with RTX}, executado em computador pessoal com sistema operacional Windows 11.
+    \item \textbf{Situação de gameplay analisada:} Câmara de testes durante o disparo e trânsito da esfera de energia de alta densidade (\textit{High Energy Pellet}) próxima às paredes metálicas modulares reflexivas.
+    \item \textbf{Momento em que a técnica pode ser observada:} No instante em que o projétil incandescente cruza a sala e se aproxima da superfície metálica vertical da câmara de testes.
+    \item \textbf{Elemento visual de aplicação:} Esfera emissora de plasma em movimento no ar e a superfície modular metálica da parede adjacente.
+    \item \textbf{Efeito visual produzido:} O projétil pontual de plasma (círculo ciano) gera um halo volumétrico difuso e intenso que ultrapassa a geometria do objeto em direção à visão do jogador; simultaneamente, o reflexo especular refletido nas placas facetadas da parede (círculo vermelho) acumula luminância suficiente para ativar o filtro de \textit{Bright Pass}, transbordando um gradiente de sangramento de luz (\textit{light bleeding}) sobre as costuras escuras dos painéis vizinhos.
+    \item \textbf{Benefício da técnica para o jogo:} Transmite a sensação tátil de perigo e calor concentrado da esfera de plasma, evitando que o reflexo especular pareça uma mancha opaca e integrando a iluminação por traçado de caminhos (\textit{Path Tracing}) aos limites de contraste do monitor.
+    \item \textbf{Fonte técnica confirmatória:} A formulação de filtros em espaço de tela (\textit{image-space}), isolamento de altas intensidades e aceleração de dispersão luminosa em pipelines HDR descrita por Ignatenko e Barladyan \cite{ignatenko2008glare}.
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.88\textwidth]{figura1.jpg}
+    \caption{Captura de tela obtida durante o gameplay de \textit{Portal with RTX}. O círculo ciano destaca o projétil de plasma incandescente em trânsito com saturação no núcleo e halo de dispersão; o círculo vermelho evidencia o reflexo especular de alta intensidade na parede metálica com sangramento de luz (\textit{light bleeding}) sobre as junções dos painéis.}
+    \label{fig:portal}
+\end{figure}
+\subsection{Jogo 2: Cyberpunk 2077}
+\begin{itemize}
+    \item \textbf{Nome do jogo e Plataforma:} \textit{Cyberpunk 2077}, executado em computador pessoal (PC/Windows 11) sobre o motor gráfico REDengine 4.
+    \item \textbf{Situação de gameplay analisada:} Exploração noturna a pé no distrito urbano em frente ao estabelecimento comercial \textit{Lizzie's Bar}, em ambiente com alta concentração de fontes emissivas de néon e piso asfáltico molhado com reflexões especulares.
+    \item \textbf{Momento em que a técnica pode ser observada:} No momento em que a visão do jogador mira a fachada iluminada com luminosos de néon e as poças de chuva refletoras na via pública.
+    \item \textbf{Elemento visual de aplicação:} Painel publicitário emissivo superior (\textit{WET DREAM}), silhuetas figurativas de néon na fachada e reflexos diretos no chão molhado.
+    \item \textbf{Efeito visual produzido:} O painel publicitário de alta luminância (demarcado pelo círculo ciano) gera um halo de dispersão volumétrica que transborda os limites da tela. Simultaneamente, as silhuetas de néon (círculo magenta) e as reflexões no piso (círculo vermelho) produzem sangramento cromático suave sobre a dispersão atmosférica ambiente (retângulo amarelo).
+    \item \textbf{Benefício da técnica para o jogo:} Essencial para conferir a atmosfera densa e visualmente distópica do cenário urbano futurista, transmitindo a intensidade física das luzes artificiais contra a noite e ampliando a percepção de contraste.
+    \item \textbf{Fonte técnica confirmatória:} O modelo de avaliação perceptiva e simulação de dispersão luminosa (\textit{glare}) em imagens HDR detalhado por Čadík et al. \cite{cadik2005naturalness}.
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.88\textwidth]{figura2.jpg}
+    \caption{Captura de tela obtida durante a execução do gameplay de \textit{Cyberpunk 2077}. O círculo ciano isola o painel emissivo principal (\textit{WET DREAM}); o círculo magenta demarca a iluminação de néon da fachada; o retângulo amarelo indica a dispersão difusa na névoa ambiente; o círculo vermelho destaca o sangramento de luz na reflexão especular do solo molhado.}
+    \label{fig:cyberpunk}
+\end{figure}
+
+% Entrega 2: arquitetura do pipeline Vulkan
+\input{entrega2}
+
+% Entrega 3: pseudocódigo dos shaders (GLSL)
+\input{entrega3}
+
+% Entrega 4: integração do código e boilerplate Vulkan
+\input{entrega4}
+
+% Entrega 5: protótipo funcional completo do Bloom
+\input{entrega5}
+
+\section{Conclusão}
+O efeito de \textit{Bloom} consolidou-se como um pilar indispensável da renderização computacional em tempo real. Sua fundamentação em fenômenos físicos e fisiológicos de dispersão intraocular, aliada às capacidades de baixo nível da API Vulkan --- como controle explícito de barreiras de sincronização e processamento massivo via \textit{Compute Shaders} ---, viabiliza a emulação convincente de faixas dinâmicas extremas com baixo impacto de desempenho.
+
+\begin{thebibliography}{99}
+
+\bibitem{seetzen2004hdr}
+H.~Seetzen, W.~Heidrich, W.~Stuerzlinger, G.~Ward, L.~Whitehead, M.~Trentacoste, A.~Ghosh, and A.~Vorozcovs, 
+``High dynamic range display systems,'' 
+\emph{ACM Transactions on Graphics (TOG)}, vol.~23, no.~3, pp. 760--768, 2004.
+
+\bibitem{spencer1995glare}
+G.~Spencer, P.~Shirley, K.~Zimmerman, and D.~P.~Greenberg, 
+``Physically-based glare effects for digital images,'' 
+in \emph{Proceedings of the 22nd Annual Conference on Computer Graphics and Interactive Techniques (ACM SIGGRAPH)}, pp. 325--334, 1995.
+
+\bibitem{reinhard2002tone}
+E.~Reinhard, M.~Stark, P.~Shirley, and J.~Ferwerda, 
+``Photographic tone reproduction for digital images,'' 
+\emph{ACM Transactions on Graphics (TOG)}, vol.~21, no.~3, pp. 267--276, 2002.
+
+\bibitem{ignatenko2008glare}
+A.~Ignatenko and A.~Barladyan, 
+``Using quad-trees for acceleration of physically-based image-space rendering of glare,'' 
+in \emph{Proceedings of GraphiCon'2008 (International Conference on Computer Graphics and Vision)}, pp. 128--133, 2008.
+
+\bibitem{cadik2005naturalness}
+M.~{\v{C}}ad{\'\i}k, M.~Wimmer, L.~Neumann, and P.~{\v{D}}urikoviv{\v{c}}, 
+``The naturalness of reproduced high dynamic range images,'' 
+in \emph{Ninth International Conference on Information Visualisation (IV'05)}, pp. 569--576, IEEE, 2005.
+
+\end{thebibliography}
+
+\end{document}

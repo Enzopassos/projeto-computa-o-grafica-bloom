@@ -1,0 +1,61 @@
+RESUMO DAS PUBLICAÇÕES CIENTÍFICAS CONSULTADAS
+
+================================================================================
+1. High Dynamic Range Display Systems
+================================================================================
+- Título: High Dynamic Range Display Systems
+- Autores: Helge Seetzen, Wolfgang Heidrich, Wolfgang Stuerzlinger, Greg Ward, Lorne Whitehead, Matthew Trentacoste, Abhijeet Ghosh, Andrejs Vorozcovs
+- Ano de Publicação: 2004
+- Veículo: ACM Transactions on Graphics (TOG) / ACM SIGGRAPH 2004
+- Objetivo: Propor e validar arquiteturas físicas de displays capazes de atingir faixas dinâmicas de luminância ordens de magnitude superiores às telas CRT/LCD convencionais.
+- Principais Conceitos: Relação de contraste, emissão física de luminância, limitação do espaço LDR (Low Dynamic Range) normalizado e percepção de brilho pelo sistema visual humano.
+- Relação com o Tema: Contextualiza a limitação dos displays comerciais, explicitando a razão de técnicas como o Bloom serem necessárias para simular percepção de brilho extremo em telas LDR.
+- Informações Aproveitadas no Relatório: Fundamentação do problema abordado na Introdução e a motivação tecnológica para a criação de operadores de pós-processamento de luz.
+
+================================================================================
+2. Physically-Based Glare Effects for Digital Images
+================================================================================
+- Título: Physically-based glare effects for digital images
+- Autores: Greg Spencer, Peter Shirley, Kurt Zimmerman, Donald P. Greenberg
+- Ano de Publicação: 1995
+- Veículo: Proceedings of the 22nd Annual Conference on Computer Graphics and Interactive Techniques (ACM SIGGRAPH 1995)
+- Objetivo: Formular uma metodologia quantitativa fundamentada na física e na fisiologia ocular para simular efeitos de dispersão intraocular (glare e bloom) em síntese de imagens.
+- Principais Conceitos: Função de Espalhamento Pontual (PSF - Point Spread Function), espalhamento de fótons pela córnea, cristalino e humor vítreo, e difração de pupila.
+- Relação com o Tema: É o artigo seminal que define a formulação matemática da dispersão biológica de luz, servindo de base para todos os filtros de Bloom na computação gráfica.
+- Informações Aproveitadas no Relatório: Apresentação, dedução e detalhamento das variáveis da Equação 3 (PSF de Spencer) na Seção 3.3.
+
+================================================================================
+3. Photographic Tone Reproduction for Digital Images
+================================================================================
+- Título: Photographic Tone Reproduction for Digital Images
+- Autores: Erik Reinhard, Michael Stark, Peter Shirley, James Ferwerda
+- Ano de Publicação: 2002
+- Veículo: ACM Transactions on Graphics (TOG) / ACM SIGGRAPH 2002
+- Objetivo: Criar um algoritmo prático de mapeamento de tons (Tone Mapping) para converter cenas com luminância em ponto flutuante (HDR) para monitores convencionais (LDR).
+- Principais Conceitos: Compressão de luminância por curva sigmoidal, escala de luminância por média geométrica/logarítmica e sistema de zonas da fotografia tradicional.
+- Relação com o Tema: O Bloom acumula energia luminosa adicional na imagem HDR; o operador de Reinhard é responsável por compactar esse resultado para o framebuffer de exibição sem truncamento abrupto (clipping).
+- Informações Aproveitadas no Relatório: Equação 5 da Seção 3.5, incluindo o significado das variáveis e a integração final com o Swapchain.
+
+================================================================================
+4. Using Quad-Trees for Acceleration of Physically-Based Image-Space Rendering of Glare
+================================================================================
+- Título: Using Quad-Trees for Acceleration of Physically-Based Image-Space Rendering of Glare
+- Autores: Alexey Ignatenko, Alexey Barladyan
+- Ano de Publicação: 2008
+- Veículo: Proceedings of GraphiCon'2008 (International Conference on Computer Graphics and Vision)
+- Objetivo: Otimizar o tempo de execução de convoluções de glare e bloom em hardware gráfico, utilizando estruturas hierárquicas e processamento estritamente em espaço de tela (image-space).
+- Principais Conceitos: Filtragem em espaço de tela (screen-space), amostragem hierárquica por níveis de resolução, isolamento de fontes de alta energia e aceleração de convoluções em pipelines interativos.
+- Relação com o Tema: Trata especificamente da transição dos modelos biofísicos pesados para pipelines eficientes executados em GPU em tempo real.
+- Informações Aproveitadas no Relatório: Embasamento da viabilidade temporal em tempo real (Seções 2.4 e 4) e suporte técnico à análise de cena no jogo Portal with RTX (Seção 6.1).
+
+================================================================================
+5. The Naturalness of Reproduced High Dynamic Range Images
+================================================================================
+- Título: The naturalness of reproduced high dynamic range images
+- Autores: Martin Čadík, Michael Wimmer, Laszlo Neumann, Pavel Ďurikovič
+- Ano de Publicação: 2005
+- Veículo: Ninth International Conference on Information Visualisation (IV'05) - IEEE
+- Objetivo: Analisar experimentalmente atributos perceptivos humanos (naturalidade, detalhe, contraste e reprodução de cor) em imagens HDR submetidas a diferentes técnicas de compressão e dispersão de brilho.
+- Principais Conceitos: Avaliação psicofísica, sensação subjetiva de ofuscamento, contraste aparente e resposta perceptual do observador a fontes luminosas intensas.
+- Relação com o Tema: Justifica o benefício perceptual do Bloom em videogames, demonstrando que a adição do halo difuso amplia a sensação de contraste e luminosidade física aparente da cena.
+- Informações Aproveitadas no Relatório: Fundamentação dos benefícios visuais do Bloom em ambientes escuros com forte contraste luminoso e suporte técnico para a análise de Cyberpunk 2077 (Seção 6.2).
